@@ -39,13 +39,16 @@ def fake_embed(text):
 def offline_embeddings(monkeypatch, tmp_path):
     """Point every embedding call at fake_embed, and give each test its own
     Chroma directory so indexes never leak between tests."""
+    # Patch the name in each module that *uses* it, not in the module that
+    # defines it. Both importers did `from .embeddings import ...`, which binds
+    # the function at import time — patching the source module would leave those
+    # bindings pointing at the real thing, and tests would quietly hit the live
+    # Gemini API (and mismatch the fake vectors' dimensions).
     monkeypatch.setattr(
         "app.services.ingestion.embed_texts",
         lambda texts: [fake_embed(t) for t in texts],
     )
-    monkeypatch.setattr(
-        "app.services.embeddings.embed_query", fake_embed, raising=False
-    )
+    monkeypatch.setattr("app.services.rag.embed_query", fake_embed)
     # Chroma's client is cached in a module global; reset it so the new
     # per-test directory actually takes effect.
     vectorstore._client = None

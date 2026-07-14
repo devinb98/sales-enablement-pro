@@ -45,6 +45,7 @@ def create_app(config_class=Config):
     # Imported for their side effect of registering with SQLAlchemy's metadata,
     # which Flask-Migrate needs in order to autogenerate migrations.
     from . import models  # noqa: F401
+    from .blueprints.action_plans import plans_bp
     from .blueprints.auth import auth_bp
     from .blueprints.deals import deals_bp
     from .blueprints.documents import documents_bp
@@ -52,6 +53,7 @@ def create_app(config_class=Config):
     app.register_blueprint(auth_bp)
     app.register_blueprint(deals_bp)
     app.register_blueprint(documents_bp)
+    app.register_blueprint(plans_bp)
 
     if app.config.get("REBUILD_INDEX_ON_STARTUP"):
         _rebuild_vector_index(app)
