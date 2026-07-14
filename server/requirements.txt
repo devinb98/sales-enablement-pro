@@ -20,3 +20,6 @@ pydantic
 
 # Deck export (Presenton hosted API)
 requests
+
+# Testing
+pytest
