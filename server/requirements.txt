@@ -1,0 +1,22 @@
+Flask
+Flask-SQLAlchemy
+Flask-Migrate
+Flask-Login
+Flask-Cors
+Flask-Bcrypt
+python-dotenv
+psycopg2-binary
+gunicorn
+
+# Document ingestion
+pypdf
+
+# RAG: retrieval + generation
+chromadb
+langchain
+langchain-text-splitters
+langchain-google-genai
+pydantic
+
+# Deck export (Presenton hosted API)
+requests

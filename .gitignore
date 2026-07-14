@@ -1,0 +1,25 @@
+# Secrets — never commit these
+.env
+.env.*
+!.env.example
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local databases and derived indexes
+*.db
+*.sqlite3
+chroma/
+.chroma/
+
+# Node
+node_modules/
+dist/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
