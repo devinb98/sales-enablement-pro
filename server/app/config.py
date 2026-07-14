@@ -46,9 +46,18 @@ class Config:
     # Retrieval tuning
     CHROMA_DIR = os.environ.get("CHROMA_DIR", "/tmp/chroma")
     RETRIEVAL_TOP_K = int(os.environ.get("RETRIEVAL_TOP_K", "8"))
-    # Below this cosine similarity we treat retrieval as having found nothing
-    # useful and refuse to generate rather than inventing a plan.
-    RETRIEVAL_MIN_SCORE = float(os.environ.get("RETRIEVAL_MIN_SCORE", "0.25"))
+    # Cosine floor below which a chunk is treated as irrelevant.
+    #
+    # Calibrated against gemini-embedding-001, whose vectors are not
+    # zero-centered: real deal content scores 0.62-0.68 against a planning query
+    # while a banana bread recipe still scores 0.51 and gibberish 0.54. The floor
+    # sits just under real content. It is deliberately only the *first* of two
+    # gates — see app/services/rag.py — because the margin is ~0.03 and no single
+    # cosine threshold is trustworthy in a band that tight.
+    #
+    # This number is specific to this embedding model. Change the model and it
+    # must be re-measured.
+    RETRIEVAL_MIN_SCORE = float(os.environ.get("RETRIEVAL_MIN_SCORE", "0.60"))
 
     # Chroma is a derived index on an ephemeral disk; rebuild it from SQL at boot.
     REBUILD_INDEX_ON_STARTUP = True
@@ -61,6 +70,11 @@ class TestConfig(Config):
     WTF_CSRF_ENABLED = False
     # Tests must never spend Presenton credits or call a live model.
     PRESENTON_LIVE = False
+    # Tests use an offline bag-of-words embedder (tests/conftest.py), which
+    # produces a different similarity scale than Gemini: on-topic ~0.40,
+    # unrelated ~0.08. The floor has to be calibrated to whichever embedder is
+    # in play, so it is set for the fake one here rather than inherited.
+    RETRIEVAL_MIN_SCORE = 0.25
     # Each test gets a fresh in-memory database, so there is nothing to rebuild
     # from — and booting the index on every app fixture would be slow.
     REBUILD_INDEX_ON_STARTUP = False

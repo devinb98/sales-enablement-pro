@@ -20,7 +20,16 @@ from .embeddings import embed_query
 
 log = logging.getLogger(__name__)
 
-CHAT_MODEL = "gemini-2.5-flash"
+# Tried in order. Verified against the live API rather than taken from
+# ListModels, which lies: it advertises gemini-2.5-flash, but calling it returns
+# "no longer available to new users." The 2.0-flash line has no free-tier quota
+# on a new key at all. Falling through to the lite model keeps a demo alive when
+# the preview model is rate-limited or overloaded, which is the failure most
+# likely to happen in front of a reviewer.
+CHAT_MODELS = ["gemini-3-flash-preview", "gemini-3.1-flash-lite"]
+
+# Errors that mean "try the next model" rather than "give up".
+FALLBACK_SIGNALS = ("429", "resource_exhausted", "503", "unavailable", "overloaded", "404")
 
 # How much of a chunk we quote back to the user in a citation card.
 QUOTE_MAX_CHARS = 400
@@ -124,10 +133,26 @@ def _retrieve(deal):
             "company profile, or RFP and try again."
         )
 
+    # The weak-context gate: reject sources that are not similar enough to the
+    # planning query, and refuse to generate rather than inventing a plan.
+    #
+    # The threshold is empirical, not arbitrary. gemini-embedding-001 vectors are
+    # not zero-centered, so cosine similarity sits in a high, compressed band.
+    # Measured against this query:
+    #
+    #     on-topic deal content    0.621 - 0.684
+    #     generic sales advice     0.589
+    #     "npm install ..."        0.573
+    #     random gibberish         0.539
+    #     a banana bread recipe    0.510
+    #
+    # Hence the 0.60 floor. Note the margin between the worst real source and the
+    # best irrelevant one is only ~0.03: content that is off-topic but *close* to
+    # the band (generic sales advice, say) can still slip through. Widening that
+    # margin would mean a second, semantic check — see README's known limitations.
     floor = current_app.config["RETRIEVAL_MIN_SCORE"]
     relevant = [h for h in hits if h["similarity"] >= floor]
     if not relevant:
-        best = max(h["similarity"] for h in hits)
         raise InsufficientContext(
             "The documents on this deal do not contain enough relevant detail to "
             "build a reliable plan. Upload a meeting note or RFP that covers the "
@@ -180,27 +205,40 @@ def _retrieve(deal):
 
 
 def _generate(deal, sources):
+    """Call Gemini with structured output, falling back down the model list if a
+    model is rate-limited or unavailable. Returns (plan, model_name)."""
     api_key = current_app.config.get("GOOGLE_API_KEY")
     if not api_key:
         raise GenerationError("GOOGLE_API_KEY is not configured.")
 
-    model = ChatGoogleGenerativeAI(
-        model=CHAT_MODEL,
-        google_api_key=api_key,
-        temperature=0.2,  # this is a planning task, not a creative one
-    )
-    # Structured output means we get typed JSON back and never parse prose.
-    structured = model.with_structured_output(GeneratedPlan)
+    messages = [
+        ("system", SYSTEM_PROMPT),
+        ("human", _build_prompt(deal, sources)),
+    ]
 
-    try:
-        return structured.invoke(
-            [
-                ("system", SYSTEM_PROMPT),
-                ("human", _build_prompt(deal, sources)),
-            ]
+    last_error = None
+    for model_name in CHAT_MODELS:
+        model = ChatGoogleGenerativeAI(
+            model=model_name,
+            google_api_key=api_key,
+            temperature=0.2,  # a planning task, not a creative one
         )
-    except Exception as err:  # noqa: BLE001
-        raise GenerationError(f"The AI service failed to generate a plan: {err}") from err
+        # Structured output means typed JSON back — never parsing prose.
+        structured = model.with_structured_output(GeneratedPlan)
+        try:
+            return structured.invoke(messages), model_name
+        except Exception as err:  # noqa: BLE001
+            last_error = err
+            if any(signal in str(err).lower() for signal in FALLBACK_SIGNALS):
+                log.warning("Model %s unavailable, trying next: %s", model_name, err)
+                continue
+            raise GenerationError(
+                f"The AI service failed to generate a plan: {err}"
+            ) from err
+
+    raise GenerationError(
+        f"Every model was unavailable. Last error: {last_error}"
+    ) from last_error
 
 
 def _valid_sources(source_ids, sources):
@@ -218,7 +256,7 @@ def generate_action_plan(deal):
     """Retrieve, gate, generate, and persist. Raises InsufficientContext when
     the deal's documents cannot support a plan."""
     sources = _retrieve(deal)
-    generated = _generate(deal, sources)
+    generated, model_used = _generate(deal, sources)
 
     plan = ActionPlan(
         deal_id=deal.id,
@@ -231,7 +269,9 @@ def generate_action_plan(deal):
             }
             for step in generated.next_steps
         ],
-        model_used=CHAT_MODEL,
+        # Record which model actually answered — with a fallback chain, that is
+        # not knowable from config alone.
+        model_used=model_used,
     )
     db.session.add(plan)
     db.session.flush()

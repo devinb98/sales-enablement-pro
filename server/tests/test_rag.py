@@ -77,7 +77,11 @@ def fake_llm(monkeypatch):
             ),
         ],
     )
-    monkeypatch.setattr("app.services.rag._generate", lambda deal, sources: plan)
+    # _generate returns (plan, model_name) so the plan can record which model
+    # in the fallback chain actually answered.
+    monkeypatch.setattr(
+        "app.services.rag._generate", lambda deal, sources: (plan, "fake-model")
+    )
     return plan
 
 
@@ -260,7 +264,7 @@ class TestRetrievalIsScopedToTheDeal:
 
         def spy(deal_arg, sources):
             captured["sources"] = sources
-            return fake_llm
+            return fake_llm, "fake-model"
 
         monkeypatch.setattr("app.services.rag._generate", spy)
 
