@@ -25,8 +25,25 @@ def create_app(config_class=Config):
     # which Flask-Migrate needs in order to autogenerate migrations.
     from . import models  # noqa: F401
     from .blueprints.auth import auth_bp
+    from .blueprints.deals import deals_bp
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(deals_bp)
+
+    # Flask's default error pages are HTML. This is a JSON API, so every error a
+    # client can provoke must come back as JSON or the frontend chokes trying to
+    # parse it.
+    @app.errorhandler(404)
+    def not_found(err):
+        return {"error": getattr(err, "description", "Not found")}, 404
+
+    @app.errorhandler(405)
+    def method_not_allowed(err):
+        return {"error": "Method not allowed"}, 405
+
+    @app.errorhandler(500)
+    def server_error(err):
+        return {"error": "Internal server error"}, 500
 
     @app.get("/api/health")
     def health():
