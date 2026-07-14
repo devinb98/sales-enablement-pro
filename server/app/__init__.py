@@ -1,7 +1,28 @@
+import logging
+
 from flask import Flask
 
 from .config import Config
 from .extensions import bcrypt, cors, db, login_manager, migrate
+
+log = logging.getLogger(__name__)
+
+
+def _rebuild_vector_index(app):
+    """Repopulate Chroma from SQL at boot.
+
+    The index lives on an ephemeral filesystem, so on Render it starts empty
+    after every deploy and restart. Rebuilding here is what makes that a
+    non-event. A failure is logged rather than raised: the app should still come
+    up and serve auth and CRUD even if retrieval is temporarily degraded.
+    """
+    from .services import vectorstore
+
+    try:
+        count = vectorstore.rebuild_from_sql(app)
+        log.info("Vector index ready (%d chunks).", count)
+    except Exception:  # noqa: BLE001
+        log.exception("Vector index rebuild failed; retrieval will be degraded.")
 
 
 def create_app(config_class=Config):
@@ -26,9 +47,14 @@ def create_app(config_class=Config):
     from . import models  # noqa: F401
     from .blueprints.auth import auth_bp
     from .blueprints.deals import deals_bp
+    from .blueprints.documents import documents_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(deals_bp)
+    app.register_blueprint(documents_bp)
+
+    if app.config.get("REBUILD_INDEX_ON_STARTUP"):
+        _rebuild_vector_index(app)
 
     # Flask's default error pages are HTML. This is a JSON API, so every error a
     # client can provoke must come back as JSON or the frontend chokes trying to
