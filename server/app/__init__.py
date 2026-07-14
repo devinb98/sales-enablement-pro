@@ -24,6 +24,9 @@ def create_app(config_class=Config):
     # Imported for their side effect of registering with SQLAlchemy's metadata,
     # which Flask-Migrate needs in order to autogenerate migrations.
     from . import models  # noqa: F401
+    from .blueprints.auth import auth_bp
+
+    app.register_blueprint(auth_bp)
 
     @app.get("/api/health")
     def health():

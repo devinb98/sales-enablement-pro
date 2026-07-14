@@ -49,3 +49,12 @@ class Config:
     # Below this cosine similarity we treat retrieval as having found nothing
     # useful and refuse to generate rather than inventing a plan.
     RETRIEVAL_MIN_SCORE = float(os.environ.get("RETRIEVAL_MIN_SCORE", "0.25"))
+
+
+class TestConfig(Config):
+    TESTING = True
+    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    SECRET_KEY = "test-secret"
+    WTF_CSRF_ENABLED = False
+    # Tests must never spend Presenton credits or call a live model.
+    PRESENTON_LIVE = False
