@@ -50,6 +50,9 @@ class Config:
     # useful and refuse to generate rather than inventing a plan.
     RETRIEVAL_MIN_SCORE = float(os.environ.get("RETRIEVAL_MIN_SCORE", "0.25"))
 
+    # Chroma is a derived index on an ephemeral disk; rebuild it from SQL at boot.
+    REBUILD_INDEX_ON_STARTUP = True
+
 
 class TestConfig(Config):
     TESTING = True
@@ -58,3 +61,6 @@ class TestConfig(Config):
     WTF_CSRF_ENABLED = False
     # Tests must never spend Presenton credits or call a live model.
     PRESENTON_LIVE = False
+    # Each test gets a fresh in-memory database, so there is nothing to rebuild
+    # from — and booting the index on every app fixture would be slow.
+    REBUILD_INDEX_ON_STARTUP = False
