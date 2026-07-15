@@ -1,0 +1,100 @@
+# Render Blueprint — deploys the API, the React app, and Postgres from this repo.
+#
+# Create via Render dashboard -> New -> Blueprint, pointed at this repository.
+# Secrets (GOOGLE_API_KEY, PRESENTON_API_KEY) are marked sync: false and must be
+# set in the dashboard; they are never committed.
+
+databases:
+  - name: sales-enablement-db
+    databaseName: sales_enablement
+    plan: free
+    # Render's free Postgres expires ~30 days after creation. Note the expiry
+    # date and confirm it falls after the grading window.
+
+services:
+  # ---- Flask API -----------------------------------------------------------
+  - type: web
+    name: sales-enablement-api
+    runtime: python
+    plan: free
+    rootDir: server
+    buildCommand: pip install -r requirements.txt
+    # Migrations run at start, not at build: the build step should not depend on
+    # the database being reachable, and this keeps a fresh deploy self-healing.
+    #
+    # One worker on purpose. The free instance has 512 MB, and each Gunicorn
+    # worker holds its own in-process Chroma index — a second worker would
+    # double the index's memory for no throughput a demo can use.
+    #
+    # 120s timeout because plan generation is a synchronous LLM call that takes
+    # ~15s locally and will be slower on a cold, throttled free instance.
+    # Gunicorn's 30s default would kill the request mid-generation.
+    startCommand: >-
+      flask db upgrade &&
+      gunicorn wsgi:app
+      --workers 1
+      --threads 4
+      --timeout 120
+      --bind 0.0.0.0:$PORT
+      --access-logfile -
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        # chromadb and psycopg2 ship no wheels for 3.14; pinning avoids a source build.
+        value: "3.12.4"
+      - key: FLASK_APP
+        value: wsgi.py
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sales-enablement-db
+          property: connectionString
+      - key: FRONTEND_ORIGIN
+        # The static site's URL. Credentialed CORS cannot use "*", so this must
+        # be the exact origin. Update it if the frontend service is renamed.
+        fromService:
+          type: web
+          name: sales-enablement-web
+          property: host
+      - key: CHROMA_DIR
+        # Ephemeral by design. Free instances cannot mount a disk, so the index
+        # is rebuilt from Postgres at every boot — see app/services/vectorstore.py.
+        value: /tmp/chroma
+      - key: RETRIEVAL_TOP_K
+        value: "8"
+      - key: RETRIEVAL_MIN_SCORE
+        # Calibrated against gemini-embedding-001. Lowering this does not relax
+        # the weak-context gate, it disables it. See server/.env.example.
+        value: "0.60"
+      - key: GOOGLE_API_KEY
+        sync: false # set in the Render dashboard
+      - key: PRESENTON_API_KEY
+        sync: false # set in the Render dashboard
+      - key: PRESENTON_BASE_URL
+        value: https://api.presenton.ai
+      - key: PRESENTON_LIVE
+        value: "1"
+
+  # ---- React static site ---------------------------------------------------
+  - type: web
+    name: sales-enablement-web
+    runtime: static
+    rootDir: client
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        # Baked in at build time by Vite, so a change here needs a rebuild.
+        fromService:
+          type: web
+          name: sales-enablement-api
+          property: host
+    routes:
+      # Single-page app: every unknown path must serve index.html or a hard
+      # refresh on /deals/3 returns 404 instead of the app.
+      - type: rewrite
+        source: /*
+        destination: /index.html

@@ -14,6 +14,24 @@ def _normalize_db_url(url: str) -> str:
     return url
 
 
+def _normalize_origin(value: str) -> str:
+    """Turn a bare hostname into a full origin.
+
+    Render's blueprint can inject another service's *host* but not its URL, so
+    FRONTEND_ORIGIN arrives as "my-app.onrender.com". CORS compares origins
+    literally: a missing scheme means the header never matches and every
+    credentialed request fails — the classic "works locally, 401s in
+    production" trap.
+    """
+    if not value:
+        return value
+    if value.startswith(("http://", "https://")):
+        return value.rstrip("/")
+    # Bare hostname. localhost is plain HTTP; anything else on Render is HTTPS.
+    scheme = "http" if value.startswith("localhost") else "https"
+    return f"{scheme}://{value}".rstrip("/")
+
+
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-not-for-production")
 
@@ -23,7 +41,9 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # The React origin allowed to send credentialed requests.
-    FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
+    FRONTEND_ORIGIN = _normalize_origin(
+        os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
+    )
 
     # Session cookie. In production the frontend and API are on different Render
     # hosts, so the cookie must be SameSite=None to be sent cross-site — and
