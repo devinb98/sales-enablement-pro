@@ -53,12 +53,11 @@ services:
           name: sales-enablement-db
           property: connectionString
       - key: FRONTEND_ORIGIN
-        # The static site's URL. Credentialed CORS cannot use "*", so this must
-        # be the exact origin. Update it if the frontend service is renamed.
-        fromService:
-          type: web
-          name: sales-enablement-web
-          property: host
+        # The static site's exact origin — credentialed CORS cannot use "*".
+        # Set literally rather than via fromService: on this deploy the
+        # cross-service reference did not resolve at build/deploy time, which
+        # left CORS rejecting the real frontend. Update if the web URL changes.
+        value: https://sales-enablement-web.onrender.com
       - key: CHROMA_DIR
         # Ephemeral by design. Free instances cannot mount a disk, so the index
         # is rebuilt from Postgres at every boot — see app/services/vectorstore.py.
@@ -89,11 +88,13 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        # Baked in at build time by Vite, so a change here needs a rebuild.
-        fromService:
-          type: web
-          name: sales-enablement-api
-          property: host
+        # The API service's real origin. Render appended "-axkw" because the
+        # bare name was already taken (subdomains are globally unique), and the
+        # fromService reference did not inject this into the static build — which
+        # left the frontend calling its own origin's /api and getting 404s. Vite
+        # bakes this in at build time, so changing it needs a full rebuild, not
+        # just a restart.
+        value: https://sales-enablement-api-axkw.onrender.com
     routes:
       # Single-page app: every unknown path must serve index.html or a hard
       # refresh on /deals/3 returns 404 instead of the app.
