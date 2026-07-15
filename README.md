@@ -11,6 +11,13 @@ Demo login — `demo@salesenablement.pro` / `demo12345` (comes with a seeded dea
 A second account, `rival@salesenablement.pro` / `demo12345`, sees none of it — log
 in as it to confirm data stays private per user.
 
+> ⚠️ **To see the AI plan generation reliably, run the app locally** (5-minute
+> setup below). On the deployed free tier, generation is best-effort: the small
+> instance's calls to Gemini can stall and a request may need a retry (the rest of
+> the app — auth, deals, uploads, per-user isolation, deck export — works fine on
+> the live URL). Locally, the same code generates a cited plan in ~13 seconds
+> every time. See [Run the AI feature locally](#run-the-ai-feature-locally).
+
 > **Problem.** A rep's context about a deal is scattered across notes, PDFs, and
 > memory. After every customer conversation they have to re-read all of it to
 > answer one question — *what do I actually do next?* — and that synthesis is
@@ -66,50 +73,66 @@ render.yaml  Render blueprint for both services + database
 
 ---
 
-## Local setup
+## Run the AI feature locally
+
+Running locally is the reliable way to see plan generation — the same code that
+is best-effort on the deployed free tier generates a cited plan in ~13 seconds
+here, every time. It takes about five minutes.
 
 ### Prerequisites
-- Python 3.12 (not 3.14 — `chromadb` and `psycopg2` have no wheels for it yet)
-- Node 18+
-- A Google AI Studio API key: <https://aistudio.google.com/apikey>
+- **Python 3.12** (not 3.14 — `chromadb` and `psycopg2` have no wheels for it yet)
+- **Node 18+**
+- A free **Google AI Studio API key**: <https://aistudio.google.com/apikey>
 
-### Backend
+### 1. Backend
 
 ```bash
 cd server
 python3.12 -m venv venv
-source venv/bin/activate
+source venv/bin/activate           # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-cp .env.example .env         # then fill in GOOGLE_API_KEY
-# generate a SECRET_KEY:
+cp .env.example .env
+# Open server/.env and set two values:
+#   GOOGLE_API_KEY = your Google AI Studio key
+#   SECRET_KEY     = the output of the next command
 python -c "import secrets; print(secrets.token_hex(32))"
 
-flask db upgrade             # create the SQLite schema
-python seed.py               # demo account + a realistic seeded deal
-python wsgi.py               # serves on http://localhost:5555
+flask db upgrade                   # create the local SQLite schema
+python seed.py                     # demo account + a realistic seeded Acme deal
+python wsgi.py                     # API on http://localhost:5555
 ```
 
-### Frontend
+Leave that running and open a second terminal for the frontend.
+
+### 2. Frontend
 
 ```bash
 cd client
 npm install
-npm run dev                  # serves on http://localhost:5173
+npm run dev                        # app on http://localhost:5173
 ```
 
-Vite proxies `/api` to the Flask server, so in development the browser sees a
-single origin. Open <http://localhost:5173>.
+Vite proxies `/api` to the Flask server, so the browser sees a single origin —
+no CORS or token setup needed for local use.
 
-### Demo login
+### 3. Use it
+
+Open <http://localhost:5173> and sign in as the seeded demo user:
 
 ```
 demo@salesenablement.pro / demo12345      (has the seeded Acme Corp deal)
 rival@salesenablement.pro / demo12345     (a second account — sees none of it)
 ```
 
-Sign in as the demo user, open the deal, and click **Generate action plan**. Log
-in as the second account to confirm the first user's data is invisible.
+Open the **Platform Renewal** deal and click **Generate action plan** — a
+source-backed plan appears in a few seconds; click any citation number to jump to
+the quoted passage it came from. Then log in as the second account to confirm the
+first user's deal is invisible.
+
+> No key handy? The app still runs — auth, deals, and uploads work — but
+> generating a plan needs `GOOGLE_API_KEY` set, since it calls Gemini to embed and
+> generate.
 
 ---
 
