@@ -1,6 +1,16 @@
 // In development VITE_API_URL is unset and requests go to /api, which Vite
 // proxies to Flask. In production it points at the deployed API service.
-const BASE_URL = import.meta.env.VITE_API_URL ?? ''
+//
+// Render's blueprint injects another service's *host*, not its URL, so this can
+// arrive as a bare "sales-enablement-api.onrender.com". fetch() would treat that
+// as a relative path and quietly request the wrong origin, so add the scheme.
+function normalizeBaseUrl(value) {
+  if (!value) return ''
+  const trimmed = value.replace(/\/$/, '')
+  return /^https?:\/\//.test(trimmed) ? trimmed : `https://${trimmed}`
+}
+
+const BASE_URL = normalizeBaseUrl(import.meta.env.VITE_API_URL)
 
 export class ApiError extends Error {
   constructor(status, payload) {
