@@ -31,6 +31,9 @@ EMBEDDING_DIM = 768
 # long retry loop here would stack with the generation call and hang the worker.
 MAX_ATTEMPTS = 3
 BASE_DELAY_SECONDS = 0.5
+# Hard cap on each individual embed HTTP call, so a stalled connection fails
+# fast instead of hanging. 3 attempts * 15s is the worst case, still bounded.
+PER_CALL_TIMEOUT_SECONDS = 15
 RETRYABLE = ("permission_denied", "403", "429", "resource_exhausted", "500", "503")
 
 
@@ -53,6 +56,12 @@ def _client():
         model=EMBEDDING_MODEL,
         google_api_key=api_key,
         output_dimensionality=EMBEDDING_DIM,
+        # Cap each network call. Without this the underlying client can block
+        # indefinitely if the outbound connection to Gemini stalls — and this
+        # runs inside request handlers behind Render's proxy, so a stalled embed
+        # would hang the worker until the proxy 502s it. A bound plus the small
+        # retry budget keeps the whole thing well under the proxy timeout.
+        request_options={"timeout": PER_CALL_TIMEOUT_SECONDS},
     )
 
 
