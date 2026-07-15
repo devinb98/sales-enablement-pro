@@ -5,8 +5,18 @@ from flask_login import current_user, login_required, login_user, logout_user
 
 from ..extensions import db
 from ..models import User
+from ..tokens import issue_token
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api")
+
+
+def _auth_response(user, status):
+    """Return the user plus a bearer token. The token is what makes auth work in
+    a cross-origin browser, where the session cookie is blocked; login_user still
+    sets the cookie for same-origin dev and tests."""
+    payload = user.to_dict()
+    payload["token"] = issue_token(user)
+    return payload, status
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 8
@@ -42,7 +52,7 @@ def signup():
     db.session.commit()
 
     login_user(user)
-    return user.to_dict(), 201
+    return _auth_response(user, 201)
 
 
 @auth_bp.post("/login")
@@ -58,7 +68,7 @@ def login():
         return {"error": "Invalid email or password."}, 401
 
     login_user(user)
-    return user.to_dict(), 200
+    return _auth_response(user, 200)
 
 
 @auth_bp.delete("/logout")
