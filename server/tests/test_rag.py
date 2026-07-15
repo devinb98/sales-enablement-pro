@@ -163,6 +163,39 @@ class TestWeakContextGate:
         assert db.session.query(ActionItem).count() == 0
 
 
+class TestGenerationTimeout:
+    """Generation runs under a hard wall-clock budget, because the Gemini client
+    ignores every timeout we can pass it. A stalled call must return a clean
+    error, never hang the worker until the platform restarts the service."""
+
+    def test_a_stalled_generation_returns_503_not_a_hang(
+        self, auth_client, deal, monkeypatch, app
+    ):
+        import time
+
+        # Shrink the budget so the test is fast, and make generation overrun it.
+        app.config["GENERATION_BUDGET_SECONDS"] = 1
+
+        def slow_generate(deal_arg):
+            time.sleep(5)  # longer than the 1s budget
+
+        monkeypatch.setattr(
+            "app.blueprints.action_plans.generate_action_plan", slow_generate
+        )
+
+        import io
+
+        auth_client.post(
+            f"/api/deals/{deal.id}/documents",
+            data={"file": (io.BytesIO(b"x" * 200), "n.txt"), "doc_type": "meeting_note"},
+            content_type="multipart/form-data",
+        )
+        res = auth_client.post(f"/api/deals/{deal.id}/action-plans")
+
+        assert res.status_code == 503
+        assert res.get_json()["error"] == "ai_timeout"
+
+
 class TestActionItems:
     @pytest.fixture
     def plan(self, auth_client, deal, fake_llm):

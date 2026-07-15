@@ -86,6 +86,17 @@ class Config:
 class TestConfig(Config):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    # Generation runs in a worker thread. A default in-memory SQLite gives each
+    # connection its own separate database, so that thread would see an empty DB.
+    # StaticPool shares one connection across threads, and check_same_thread lets
+    # SQLite be used from the pool thread. Production is Postgres, where every
+    # pooled connection already talks to the same database, so this is test-only.
+    from sqlalchemy.pool import StaticPool
+
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "poolclass": StaticPool,
+        "connect_args": {"check_same_thread": False},
+    }
     SECRET_KEY = "test-secret"
     WTF_CSRF_ENABLED = False
     # Tests must never spend Presenton credits or call a live model.
