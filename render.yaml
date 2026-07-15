@@ -70,13 +70,15 @@ services:
         # the weak-context gate, it disables it. See server/.env.example.
         value: "0.60"
       - key: GOOGLE_API_KEY
-        sync: false # set in the Render dashboard
-      - key: PRESENTON_API_KEY
-        sync: false # set in the Render dashboard
+        sync: false # set in the Render dashboard — required
+      # Presenton deck export is a stretch feature and not yet wired up. Its key
+      # is optional for now; add it in the dashboard and flip PRESENTON_LIVE to 1
+      # when the feature ships. Leaving PRESENTON_LIVE at 0 keeps the MVP deploy
+      # from depending on a secret nothing consumes yet.
       - key: PRESENTON_BASE_URL
         value: https://api.presenton.ai
       - key: PRESENTON_LIVE
-        value: "1"
+        value: "0"
 
   # ---- React static site ---------------------------------------------------
   - type: web
