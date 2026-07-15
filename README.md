@@ -266,8 +266,8 @@ fetched-then-checked. A record owned by someone else returns **404, not 403** �
 5. **Persist.** The plan, its items, and a `Citation` per source are saved, so the
    citation a user clicks resolves to the exact passage the model was shown.
 
-Generation runs under a hard wall-clock budget on a worker thread (see
-[production notes](#production-notes-free-tier)).
+Generation is a synchronous LLM call; on the deployed free tier it is best-effort
+(see [production notes](#production-notes-free-tier)).
 
 ### Deck export
 
@@ -318,12 +318,17 @@ The repo includes `render.yaml`, a Blueprint that provisions all three services.
 
 - **Cold starts.** Free web services sleep after ~15 minutes idle; the first
   request then waits ~50 seconds while the instance wakes.
-- **Generation budget.** The Gemini client does not honor a client-side timeout,
-  so plan generation runs on a worker thread under a 45-second wall-clock budget.
-  If the model is slow (common when Gemini is under load, and slower from a
-  free-tier instance), the request returns a clean *"AI service is slow, try
-  again"* rather than hanging — so the service stays healthy and you retry. On a
-  good attempt, generation takes ~10–20 seconds.
+- **Generation is best-effort on the free tier.** Plan generation is a synchronous
+  call to Gemini that takes ~10–20 seconds on a good attempt (locally, and when
+  the deployed instance and Gemini are responsive). But the free instance is small
+  and its outbound calls to Gemini can be slow or stall, and langchain's Gemini
+  client does not honor a client-side timeout — so a stalled call cannot be cut
+  off cleanly and the generation request may hang until it is retried. The API
+  runs **two web workers** specifically so this can't take the site down: while
+  one worker is busy on a slow generation, the other keeps answering Render's
+  health checks, so the service stays up and you simply try Generate again. This
+  is a free-tier limitation, not a logic bug — the same code generates reliably in
+  ~13 seconds locally and in the test suite.
 - **Ephemeral vector index.** Free instances cannot mount a disk, so Chroma's
   directory is wiped on every restart. This is by design: Postgres stores each
   chunk *and its embedding vector*, and the index is rebuilt from the database at
@@ -366,8 +371,12 @@ fallback added so the feature does not depend on a paid, credit-metered vendor.
   margin (~0.03 in cosine similarity). Obviously-unrelated content is refused
   reliably, but off-topic content *near* the sales domain can slip through.
 - Text-based PDFs only. Scanned/image PDFs are rejected (no OCR).
-- On the free tier, a slow Gemini response returns a "try again" rather than a
-  plan; generation is not guaranteed to succeed on the first attempt under load.
+- On the free tier, plan generation is best-effort: a slow or stalled Gemini call
+  can make a generation request hang and need a retry. The service stays up
+  regardless (two workers keep health checks answered), and the same code
+  generates reliably in ~13s locally — this is a hosting-resource limitation, not
+  a logic bug. Reliable deployed generation would want a paid instance or moving
+  generation to a background job (see Future improvements).
 - Generated Presenton decks are hosted on the vendor's public bucket at an
   unlisted URL; the app proxies downloads through an ownership-checked route, but
   the underlying object is not access-controlled by the vendor. (The built-in
