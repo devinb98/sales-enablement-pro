@@ -22,18 +22,20 @@ services:
     # Migrations run at start, not at build: the build step should not depend on
     # the database being reachable, and this keeps a fresh deploy self-healing.
     #
-    # One worker on purpose. The free instance has 512 MB, and each Gunicorn
-    # worker holds its own in-process Chroma index — a second worker would
-    # double the index's memory for no throughput a demo can use.
+    # TWO workers, deliberately. Plan generation can block a worker for many
+    # seconds (the Gemini client ignores timeouts, so a slow call runs long), and
+    # Render's health check has a 5s timeout — with a single worker, a generation
+    # in flight means /api/health goes unanswered and Render restarts the service
+    # mid-request. A second worker answers health checks while the first is busy,
+    # so the service stays up. Two workers fit the 512 MB free instance for this
+    # dataset (~200 MB each); threads kept at 2 to hold memory down.
     #
-    # 120s timeout because plan generation is a synchronous LLM call that takes
-    # ~15s locally and will be slower on a cold, throttled free instance.
-    # Gunicorn's 30s default would kill the request mid-generation.
+    # 120s timeout so a slow generation isn't killed by Gunicorn's 30s default.
     startCommand: >-
       flask db upgrade &&
       gunicorn wsgi:app
-      --workers 1
-      --threads 4
+      --workers 2
+      --threads 2
       --timeout 120
       --bind 0.0.0.0:$PORT
       --access-logfile -
