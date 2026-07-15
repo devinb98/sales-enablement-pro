@@ -48,12 +48,14 @@ def create_app(config_class=Config):
     from .blueprints.action_plans import plans_bp
     from .blueprints.auth import auth_bp
     from .blueprints.deals import deals_bp
+    from .blueprints.decks import decks_bp
     from .blueprints.documents import documents_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(deals_bp)
     app.register_blueprint(documents_bp)
     app.register_blueprint(plans_bp)
+    app.register_blueprint(decks_bp)
 
     if app.config.get("REBUILD_INDEX_ON_STARTUP"):
         _rebuild_vector_index(app)

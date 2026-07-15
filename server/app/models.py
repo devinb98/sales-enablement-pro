@@ -186,6 +186,12 @@ class ActionPlan(db.Model):
     citations = db.relationship(
         "Citation", back_populates="action_plan", cascade="all, delete-orphan"
     )
+    decks = db.relationship(
+        "Deck",
+        back_populates="action_plan",
+        cascade="all, delete-orphan",
+        order_by="Deck.created_at.desc()",
+    )
 
     def to_dict(self, include_children=False):
         data = {
@@ -276,4 +282,47 @@ class Citation(db.Model):
             "document_id": document.id if document else None,
             "filename": document.filename if document else None,
             "doc_type": document.doc_type if document else None,
+        }
+
+
+class Deck(db.Model):
+    """A downloadable slide deck built from an ActionPlan.
+
+    The .pptx bytes are stored here in the database on purpose. The generator
+    (Presenton) returns the file on a public, unauthenticated URL, and Render's
+    free disk is ephemeral — so neither the vendor's URL nor local disk is a safe
+    place to keep a confidential deal deck. Holding the bytes in Postgres lets us
+    serve them through an ownership-checked route and survive restarts.
+    """
+
+    __tablename__ = "decks"
+
+    id = db.Column(db.Integer, primary_key=True)
+    action_plan_id = db.Column(
+        db.Integer, db.ForeignKey("action_plans.id"), nullable=False, index=True
+    )
+    # Denormalized for query-time ownership, same pattern as everywhere else.
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+    )
+    filename = db.Column(db.String(255), nullable=False)
+    data = db.Column(db.LargeBinary, nullable=False)
+    slide_count = db.Column(db.Integer)
+    # "presenton" or "builtin" — which generator produced this deck.
+    source = db.Column(db.String(20), nullable=False, default="builtin")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    action_plan = db.relationship("ActionPlan", back_populates="decks")
+
+    def to_dict(self):
+        # The bytes are never serialized to JSON — they are streamed by the
+        # download route instead.
+        return {
+            "id": self.id,
+            "action_plan_id": self.action_plan_id,
+            "filename": self.filename,
+            "slide_count": self.slide_count,
+            "source": self.source,
+            "size_bytes": len(self.data) if self.data else 0,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }

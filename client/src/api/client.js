@@ -91,4 +91,28 @@ export const api = {
   updateItem: (id, data) =>
     request(`/api/action-items/${id}`, { method: 'PATCH', body: data }),
   deleteItem: (id) => request(`/api/action-items/${id}`, { method: 'DELETE' }),
+
+  // Decks
+  generateDeck: (planId) =>
+    request(`/api/action-plans/${planId}/deck`, { method: 'POST' }),
+  listDecks: (planId) => request(`/api/action-plans/${planId}/decks`),
+  deleteDeck: (id) => request(`/api/decks/${id}`, { method: 'DELETE' }),
+
+  // Fetches the .pptx with credentials and triggers a browser download. The
+  // bytes come through our own ownership-checked route, never a Presenton URL.
+  downloadDeck: async (deckId, filename) => {
+    const response = await fetch(`${BASE_URL}/api/decks/${deckId}/download`, {
+      credentials: 'include',
+    })
+    if (!response.ok) throw new ApiError(response.status, null)
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename || 'action-plan.pptx'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  },
 }

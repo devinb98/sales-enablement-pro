@@ -49,15 +49,45 @@ export default function PlanView() {
   const [newItem, setNewItem] = useState('')
   const [adding, setAdding] = useState(false)
 
+  const [decks, setDecks] = useState([])
+  const [deckBusy, setDeckBusy] = useState(false)
+  const [deckError, setDeckError] = useState(null)
+
   useEffect(() => {
-    api
-      .getPlan(id)
-      .then(setPlan)
+    Promise.all([api.getPlan(id), api.listDecks(id)])
+      .then(([p, d]) => {
+        setPlan(p)
+        setDecks(d)
+      })
       .catch((err) => {
         if (err.status === 404) navigate('/deals', { replace: true })
       })
       .finally(() => setLoading(false))
   }, [id, navigate])
+
+  async function generateDeck() {
+    setDeckBusy(true)
+    setDeckError(null)
+    try {
+      const deck = await api.generateDeck(id)
+      setDecks([deck, ...decks])
+      // Kick off the download straight away — the reason they clicked.
+      await api.downloadDeck(deck.id, deck.filename)
+    } catch (err) {
+      setDeckError(err.message)
+    } finally {
+      setDeckBusy(false)
+    }
+  }
+
+  async function downloadDeck(deck) {
+    setDeckError(null)
+    try {
+      await api.downloadDeck(deck.id, deck.filename)
+    } catch (err) {
+      setDeckError(err.message)
+    }
+  }
 
   function focusCitation(sourceNumber) {
     setOpenCitation(sourceNumber)
@@ -130,6 +160,43 @@ export default function PlanView() {
       <section className="card">
         <h2>Where this deal stands</h2>
         <p className="summary">{plan.summary}</p>
+      </section>
+
+      <section className="card deck">
+        <div className="deck__head">
+          <div>
+            <h2>Customer deck</h2>
+            <p className="muted">
+              Turn this plan into a downloadable PowerPoint to share internally or
+              adapt for the customer.
+            </p>
+          </div>
+          <button className="btn btn--secondary" onClick={generateDeck} disabled={deckBusy}>
+            {deckBusy ? 'Building…' : 'Generate deck'}
+          </button>
+        </div>
+
+        {deckError && <div className="alert alert--error">{deckError}</div>}
+
+        {decks.length > 0 && (
+          <ul className="deck-list">
+            {decks.map((deck) => (
+              <li key={deck.id}>
+                <div>
+                  <strong>{deck.filename}</strong>
+                  <small className="muted">
+                    {deck.slide_count} slides ·{' '}
+                    {deck.source === 'presenton' ? 'Presenton' : 'built-in'} ·{' '}
+                    {(deck.size_bytes / 1024).toFixed(0)} KB
+                  </small>
+                </div>
+                <button className="btn btn--ghost" onClick={() => downloadDeck(deck)}>
+                  Download
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="card">
