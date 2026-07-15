@@ -28,8 +28,20 @@ log = logging.getLogger(__name__)
 # likely to happen in front of a reviewer.
 CHAT_MODELS = ["gemini-3-flash-preview", "gemini-3.1-flash-lite"]
 
-# Errors that mean "try the next model" rather than "give up".
-FALLBACK_SIGNALS = ("429", "resource_exhausted", "503", "unavailable", "overloaded", "404")
+# Errors that mean "try the next model" rather than "give up". Includes timeout
+# and deadline signals, so a model that is merely slow yields to the next one
+# instead of failing the whole request.
+FALLBACK_SIGNALS = (
+    "429",
+    "resource_exhausted",
+    "503",
+    "unavailable",
+    "overloaded",
+    "404",
+    "timeout",
+    "timed out",
+    "deadline",
+)
 
 # How much of a chunk we quote back to the user in a citation card.
 QUOTE_MAX_CHARS = 400
@@ -222,6 +234,17 @@ def _generate(deal, sources):
             model=model_name,
             google_api_key=api_key,
             temperature=0.2,  # a planning task, not a creative one
+            # Bound every call. This endpoint is a synchronous request behind
+            # Render's proxy, which returns 502 (killing the worker mid-request)
+            # if the app takes too long — observed at ~55s. Left unbounded,
+            # LangChain retries a transient error up to 6 times with backoff, and
+            # the two-model fallback below multiplies that, so one network hiccup
+            # on the free instance stacks into a 55s+ hang. No internal retries
+            # (our model fallback is the resilience) and a 20s cap per model keep
+            # the worst case — both models timing out — near 40s, safely under
+            # the proxy limit. When healthy the first model answers in seconds.
+            timeout=20,
+            max_retries=0,
         )
         # Structured output means typed JSON back — never parsing prose.
         structured = model.with_structured_output(GeneratedPlan)

@@ -26,7 +26,10 @@ log = logging.getLogger(__name__)
 EMBEDDING_MODEL = "models/gemini-embedding-001"
 EMBEDDING_DIM = 768
 
-MAX_ATTEMPTS = 5
+# Kept low on purpose. Embedding happens inside request handlers that sit behind
+# Render's proxy timeout, so the retry budget plus backoff must stay small — a
+# long retry loop here would stack with the generation call and hang the worker.
+MAX_ATTEMPTS = 3
 BASE_DELAY_SECONDS = 0.5
 RETRYABLE = ("permission_denied", "403", "429", "resource_exhausted", "500", "503")
 
