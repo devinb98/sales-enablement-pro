@@ -12,7 +12,22 @@ def utcnow():
 
 @login_manager.user_loader
 def load_user(user_id):
+    """Session-cookie path: works same-origin (local dev, tests)."""
     return db.session.get(User, int(user_id))
+
+
+@login_manager.request_loader
+def load_user_from_token(request):
+    """Bearer-token path: the cross-origin browser case, where the session cookie
+    is a blocked third-party cookie. Flask-Login falls back to this when there is
+    no session, so current_user and @login_required work unchanged either way."""
+    from .tokens import user_id_from_token
+
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        return None
+    user_id = user_id_from_token(header[len("Bearer ") :])
+    return db.session.get(User, user_id) if user_id else None
 
 
 class User(db.Model, UserMixin):

@@ -12,6 +12,23 @@ function normalizeBaseUrl(value) {
 
 const BASE_URL = normalizeBaseUrl(import.meta.env.VITE_API_URL)
 
+// The frontend and API are on different Render subdomains, which browsers treat
+// as cross-site — so the session cookie is a third-party cookie they block.
+// A bearer token in a header is immune to that policy. We keep the token in
+// localStorage and attach it to every request.
+const TOKEN_KEY = 'sep_token'
+
+export const auth = {
+  get: () => localStorage.getItem(TOKEN_KEY),
+  set: (token) => localStorage.setItem(TOKEN_KEY, token),
+  clear: () => localStorage.removeItem(TOKEN_KEY),
+}
+
+function authHeaders() {
+  const token = auth.get()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 export class ApiError extends Error {
   constructor(status, payload) {
     super(payload?.message || payload?.error || `Request failed (${status})`)
@@ -25,10 +42,11 @@ export class ApiError extends Error {
 async function request(path, { method = 'GET', body, isFormData = false } = {}) {
   const options = {
     method,
-    // Without this the session cookie is neither sent nor stored, and every
-    // protected route 401s.
+    // credentials: 'include' keeps the session cookie working for same-origin
+    // dev; the Authorization header is what actually authenticates the deployed
+    // cross-origin browser, where that cookie is blocked.
     credentials: 'include',
-    headers: {},
+    headers: { ...authHeaders() },
   }
 
   if (body !== undefined) {
@@ -103,6 +121,7 @@ export const api = {
   downloadDeck: async (deckId, filename) => {
     const response = await fetch(`${BASE_URL}/api/decks/${deckId}/download`, {
       credentials: 'include',
+      headers: { ...authHeaders() },
     })
     if (!response.ok) throw new ApiError(response.status, null)
     const blob = await response.blob()

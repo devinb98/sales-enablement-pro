@@ -1,4 +1,5 @@
 from app.models import User
+from app.tokens import issue_token, user_id_from_token
 
 from .conftest import login
 
@@ -14,6 +15,13 @@ class TestSignup:
 
         # The signup response should log the user in, so /api/me works straight away.
         assert client.get("/api/me").status_code == 200
+
+    def test_returns_a_bearer_token(self, client):
+        res = client.post(
+            "/api/signup",
+            json={"email": "t@b.co", "password": "password123", "name": "T"},
+        )
+        assert res.get_json().get("token")  # non-empty token in the response
 
     def test_never_returns_the_password_hash(self, client):
         res = client.post(
@@ -74,6 +82,47 @@ class TestLogin:
         # Identical responses, so login cannot be used to enumerate accounts.
         assert unknown.status_code == wrong_pw.status_code == 401
         assert unknown.get_json() == wrong_pw.get_json()
+
+
+class TestTokenAuth:
+    """The cross-origin browser path: no session cookie, a bearer token instead.
+    This is what makes the deployed app work, where the two Render subdomains are
+    cross-site and the session cookie is a blocked third-party cookie.
+
+    These tests never call login(), so the `client` here holds no session cookie
+    and Flask-Login has no cached user to fall back on — the token in the header
+    is the only thing that can authenticate the request. (Calling login() would
+    prime Flask-Login's g-cache under the fixture's shared app context and mask
+    whether the token did any work at all.)
+    """
+
+    def test_token_authenticates_without_a_session_cookie(self, client, user):
+        token = issue_token(user)
+        res = client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
+        assert res.status_code == 200
+        assert res.get_json()["email"] == "rep@example.com"
+
+    def test_token_authorizes_protected_routes(self, client, user):
+        token = issue_token(user)
+        res = client.get("/api/deals", headers={"Authorization": f"Bearer {token}"})
+        assert res.status_code == 200
+
+    def test_no_header_is_unauthenticated(self, client, user):
+        # Proves the tests above pass because of the token, not a leaked session.
+        assert client.get("/api/me").status_code == 401
+
+    def test_a_garbage_token_is_rejected(self, client):
+        res = client.get("/api/me", headers={"Authorization": "Bearer not.a.real.token"})
+        assert res.status_code == 401
+
+    def test_a_tampered_token_is_rejected(self, client, user):
+        token = issue_token(user)
+        res = client.get("/api/me", headers={"Authorization": f"Bearer {token}x"})
+        assert res.status_code == 401
+
+    def test_login_and_signup_both_return_a_usable_token(self, client, user):
+        login_token = login(client).get_json()["token"]
+        assert user_id_from_token(login_token) == user.id
 
 
 class TestSessionAndLogout:

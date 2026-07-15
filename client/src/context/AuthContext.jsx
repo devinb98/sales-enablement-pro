@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { api } from '../api/client'
+import { api, auth } from '../api/client'
 
 const AuthContext = createContext(null)
 
@@ -11,28 +11,46 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Only ask the server who we are if we hold a token; otherwise we already
+    // know we are signed out and can skip a guaranteed 401.
+    if (!auth.get()) {
+      setLoading(false)
+      return
+    }
     api
       .me()
       .then(setUser)
-      .catch(() => setUser(null)) // 401 simply means "not signed in"
+      .catch(() => {
+        // Token missing, expired, or rejected — treat as signed out.
+        auth.clear()
+        setUser(null)
+      })
       .finally(() => setLoading(false))
   }, [])
 
   const login = useCallback(async (credentials) => {
     const account = await api.login(credentials)
+    auth.set(account.token)
     setUser(account)
     return account
   }, [])
 
   const signup = useCallback(async (details) => {
     const account = await api.signup(details)
+    auth.set(account.token)
     setUser(account)
     return account
   }, [])
 
   const logout = useCallback(async () => {
-    await api.logout()
-    setUser(null)
+    // Tell the server, but the token in localStorage is what actually keeps us
+    // logged in, so clear it regardless of how the request goes.
+    try {
+      await api.logout()
+    } finally {
+      auth.clear()
+      setUser(null)
+    }
   }, [])
 
   return (
